@@ -1,0 +1,100 @@
+#!/bin/bash
+# 定义数据文件路径
+CONFIG="/sshconfig"
+
+echoUsage() {
+        echo "Usage: jump.sh"
+        exit 10
+}
+
+echoS() {
+        Msg=$1
+        Msg=${Msg:-"Success"}
+        echo -e "执行:\e[32m $Msg\e[0m\n"
+}
+
+echoF() {
+        Msg=$1
+        Msg=${Msg:-"Error"}
+        echo -e "执行:\e[31m $Msg\e[0m\n"
+}
+
+listConfig() {
+        echo -e "Num Session Username Host Describe" | awk '{printf "%-5s%-20s%-10s%-20s%-40s\n",$1,$2,$3,$4,$5}'
+        while read line
+        do
+                echo $line | awk '{printf "%-5s%-20s%-10s%-20s%-40s\n",$1,$2,$5,$6,$3}'
+        done < $CONFIG
+        echo ""
+}
+addConfig() {
+        read -p "会话名: " SSession
+        read -p "主机地址: " SHost
+        read -p "端口: 默认: 22: " SPort
+        SPort=${SPort:-"22"}
+        read -p "连接方式: 默认: password: " SType
+        SType=${SType:-"password"}
+        read -p "用户名: " SUsername
+        read -p "密码或公钥绝对路径: " SPass
+        read -p "备注: 默认: 无: " SDescribe
+        SDescribe=${SDescribe:-"无"}
+        SNum=$(wc -l $CONFIG | awk '{print $1 + 1 }')
+        echo "$SNum $SSession $SDescribe $SType $SUsername $SHost $SPort $SPass" >> $CONFIG && echoS || echoF
+}
+
+delConfig() {
+        delNum=$1
+        CONFIG_TMP=$CONFIG-tmp
+        awk '{if($1!=delNum) {print $0}}' delNum=$1 $CONFIG > $CONFIG_TMP && mv $CONFIG_TMP $CONFIG
+}
+
+goToSelect() {
+        getNum=$1
+        read SType SUser SPass SHost SPort <<< $(awk '{if($1==selectNum) {print $4,$5,$8,$6,$7}}' selectNum=$getNum $CONFIG)
+        if [[ $SType == "password" ]]; then
+                sshpass -p $SPass ssh -o StrictHostKeyChecking=no $SUser@$SHost -p $SPort
+        elif [[ $SType == "key" ]]; then
+                sshpass ssh -o StrictHostKeyChecking=no -i $SPass $SUser@$SHost -p $SPort
+        else
+                echo -e "\e[31mThis Ssh Type is not password and key\e[0m"
+        fi
+}
+
+
+main() {
+        echo -e "\e[32m欢迎使用跳板机\e[0m"
+        listConfig
+        echo -e "\e[32m支持输入的指令: Num代表Session编号\e[0m\n登录会话: Num\n添列出会话: list\n添加会话: add\n删除会话: del Num\n帮助: help\n退出: exit\n"
+        while true
+        do
+                echo -e "\e[32m请输入指令:\e[0m" && read Action
+                if [[ $Action == "add" ]]; then
+                        addConfig && listConfig
+                elif [[ $Action =~ "del " ]]; then
+                        Num=$(echo $Action | awk '{print $2}')
+                        delConfig $Num && listConfig
+                elif [[ $Action =~ [1-9+] ]]; then
+                        goToSelect $Action || echoF "SSH连接失败"
+                elif [[ $Action == "list" ]]; then
+                        listConfig
+                elif [[ $Action == "help" ]]; then
+                        echo -e "\e[32m支持输入的指令: Num代表Session编号\e[0m\n登录会话: Num\n添列出会话: list\n添加会话: add\n删除会话: del Num\n帮助: help\n退出: exit\n"
+                elif [[ $Action == "exit" ]]; then
+                        echoS "退出跳板机"
+                        exit 0
+                else
+                        echoF "输入指令错误, 请重新输入"
+                fi
+                echo ""
+        done
+}
+
+if [ ! -f $CONFIG ]; then
+        touch $CONFIG
+fi
+
+if [[ $# > 0 ]]; then
+        echoUsage
+fi
+
+main
